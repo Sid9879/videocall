@@ -1,0 +1,893 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ULive | Professional Battle Arena</title>
+    <script
+  src="https://unpkg.com/zego-express-engine-webrtc@latest/index.js"
+  crossorigin="anonymous">
+</script>
+    <!-- Modern Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Plus+Jakarta+Sans:wght@300;400;600;800&display=swap" rel="stylesheet">
+    
+    <!-- Libraries -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+
+    <!-- Zego SDK Fallback Loader -->
+    <script>
+        function screenLog(msg, isError = false) {
+            const screen = document.getElementById('logScreen');
+            if (!screen) {
+                console.log("Waiting for UI to log:", msg);
+                setTimeout(() => screenLog(msg, isError), 100);
+                return;
+            }
+            const div = document.createElement('div');
+            div.className = isError ? 'log-error' : '';
+            div.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            screen.appendChild(div);
+            screen.scrollTop = screen.scrollHeight;
+        }
+
+        function loadZegoSDK() {
+            // Protocol Check
+            if (window.location.protocol === 'file:') {
+                screenLog("⚠️ WARNING: You are running this file locally via 'file://'. Modern browsers may block SDK loading and Camera access. Please use a local server if possible.", true);
+            }
+            
+            let currentCdnIndex = 0;
+
+            function tryNextCDN() {
+                if (currentCdnIndex >= cdns.length) {
+                    screenLog("❌ CRITICAL: All Zego SDK CDNs failed. This is likely a network restriction or total block of script CDNs.", true);
+                    const zegoKeys = Object.keys(window).filter(k => k.toLowerCase().includes('zego'));
+                    screenLog(`🔍 Diagnostic: Found window keys containing "Zego": ${zegoKeys.join(', ') || 'NONE'}`);
+                    return;
+                }
+
+                screenLog(`📡 Attempting CDN ${currentCdnIndex + 1}: ${new URL(cdns[currentCdnIndex]).hostname}...`);
+                const script = document.createElement('script');
+                script.src = cdns[currentCdnIndex];
+                script.crossOrigin = "anonymous";
+                script.onload = () => {
+                    // Give extra time for the browser to register the global variable
+                    setTimeout(() => {
+                        if (window.ZegoExpressEngine || (window.Zego && window.Zego.ZegoExpressEngine)) {
+                            screenLog(`✅ Zego SDK Initialized from CDN ${currentCdnIndex + 1}`);
+                            document.getElementById('zegoStatus').innerText = "SDK READY";
+                            document.getElementById('zegoStatus').style.color = "#10b981";
+                        } else {
+                            screenLog(`⚠️ Script loaded from CDN ${currentCdnIndex + 1} but ZegoExpressEngine is still undefined. Trying next...`, true);
+                            currentCdnIndex++;
+                            tryNextCDN();
+                        }
+                    }, 1000);
+                };
+                script.onerror = () => {
+                    screenLog(`⚠️ Failed to load Zego from CDN ${currentCdnIndex + 1}.`, true);
+                    currentCdnIndex++;
+                    tryNextCDN();
+                };
+                document.head.appendChild(script);
+            }
+
+            tryNextCDN();
+        }
+        
+        window.addEventListener('DOMContentLoaded', loadZegoSDK);
+    </script>
+
+    <style>
+        :root {
+            --primary: #8b5cf6;
+            --primary-glow: rgba(139, 92, 246, 0.5);
+            --secondary: #ec4899;
+            --host-a: #ef4444;
+            --host-b: #3b82f6;
+            --bg: #050505;
+            --card: rgba(255, 255, 255, 0.03);
+            --border: rgba(255, 255, 255, 0.1);
+            --text: #ffffff;
+            --text-dim: #94a3b8;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+
+        body {
+            background-color: var(--bg);
+            background-image: 
+                radial-gradient(circle at 0% 0%, rgba(139, 92, 246, 0.15) 0%, transparent 50%),
+                radial-gradient(circle at 100% 100%, rgba(236, 72, 153, 0.15) 0%, transparent 50%);
+            color: var(--text);
+            min-height: 100vh;
+            overflow-x: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* --- Header & PK Bar --- */
+        header {
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+            backdrop-filter: blur(10px);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .logo {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 700;
+            background: linear-gradient(to right, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .pk-container {
+            flex-grow: 1;
+            max-width: 600px;
+            margin: 0 2rem;
+            position: relative;
+        }
+
+        .pk-bar-wrapper {
+            height: 12px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+            overflow: hidden;
+            display: flex;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .pk-bar-a {
+            height: 100%;
+            background: linear-gradient(90deg, #b91c1c, #ef4444);
+            transition: width 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+            width: 50%;
+        }
+
+        .pk-bar-b {
+            height: 100%;
+            background: linear-gradient(-90deg, #1d4ed8, #3b82f6);
+            transition: width 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+            width: 50%;
+        }
+
+        .vs-indicator {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: #fff;
+            color: #000;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-weight: 800;
+            box-shadow: 0 0 15px rgba(255,255,255,0.3);
+        }
+
+        /* --- Main Layout --- */
+        main {
+            display: grid;
+            grid-template-columns: 1fr 380px;
+            gap: 1.5rem;
+            padding: 1.5rem;
+            flex-grow: 1;
+        }
+
+        /* --- Video Arena --- */
+        .arena {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            height: 600px;
+        }
+
+        .video-box {
+            background: #111;
+            border-radius: 20px;
+            position: relative;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+        }
+
+        .video-box.active {
+            border-color: var(--primary);
+            box-shadow: 0 0 30px var(--primary-glow);
+        }
+
+        .video-label {
+            position: absolute;
+            top: 1rem;
+            left: 1rem;
+            background: rgba(0,0,0,0.6);
+            padding: 0.4rem 1rem;
+            border-radius: 30px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            z-index: 10;
+        }
+
+        .video-label::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            background: #10b981;
+            border-radius: 50%;
+            box-shadow: 0 0 10px #10b981;
+        }
+
+        .video-placeholder {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: var(--text-dim);
+        }
+
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .video-controls {
+            position: absolute;
+            bottom: 1rem;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 0.8rem;
+            z-index: 10;
+        }
+
+        .v-btn {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: rgba(0,0,0,0.7);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .v-btn:hover { background: var(--primary); transform: scale(1.1); }
+        .v-btn.off { background: #ef4444; }
+
+        /* --- Interaction Panel --- */
+        .panel {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .glass-card {
+            background: var(--card);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 1.5rem;
+        }
+
+        .section-title {
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-dim);
+            margin-bottom: 1.2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        /* --- Forms & Buttons --- */
+        .input-stack {
+            display: flex;
+            flex-direction: column;
+            gap: 0.8rem;
+        }
+
+        .input-group label {
+            display: block;
+            font-size: 0.75rem;
+            margin-bottom: 0.4rem;
+            color: var(--text-dim);
+        }
+
+        input {
+            width: 100%;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 0.8rem 1rem;
+            color: white;
+            outline: none;
+            transition: border 0.3s;
+        }
+
+        input:focus { border-color: var(--primary); }
+
+        .btn-glow {
+            background: linear-gradient(45deg, var(--primary), var(--secondary));
+            border: none;
+            padding: 0.8rem 1.5rem;
+            border-radius: 12px;
+            color: white;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 10px 20px rgba(139, 92, 246, 0.3);
+        }
+
+        .btn-glow:hover { transform: translateY(-2px); box-shadow: 0 15px 30px rgba(139, 92, 246, 0.4); }
+        .btn-glow:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .btn-outline {
+            background: transparent;
+            border: 1px solid var(--border);
+            padding: 0.8rem 1.5rem;
+            border-radius: 12px;
+            color: white;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-outline:hover { background: rgba(255,255,255,0.05); }
+
+        /* --- Live Chat --- */
+        .chat-container {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .chat-feed {
+            flex-grow: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column-reverse;
+            padding: 1rem 0;
+            gap: 0.8rem;
+        }
+
+        .chat-msg {
+            display: flex;
+            gap: 0.8rem;
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .avatar-small {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: #333;
+            flex-shrink: 0;
+        }
+
+        .msg-bubble {
+            background: rgba(255,255,255,0.05);
+            padding: 0.6rem 0.8rem;
+            border-radius: 12px;
+            font-size: 0.9rem;
+        }
+
+        .msg-bubble .uname { font-weight: 700; color: var(--primary); margin-right: 4px; }
+
+        /* --- Log Grid --- */
+        .logs {
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.75rem;
+            color: #10b981;
+            max-height: 150px;
+            overflow-y: auto;
+            background: rgba(0,0,0,0.3);
+            border-radius: 12px;
+            padding: 0.8rem;
+        }
+
+        .log-error { color: #ef4444; }
+
+        /* --- Gift Selection --- */
+        .gift-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.5rem;
+            margin-top: 1rem;
+        }
+
+        .gift-item {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 0.5rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .gift-item:hover { background: rgba(255,255,255,0.1); border-color: var(--secondary); }
+        .gift-item img { width: 30px; height: 30px; }
+        .gift-item span { display: block; font-size: 0.7rem; color: var(--text-dim); }
+
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="logo">ULIVE BATTLE</div>
+        <div class="pk-container">
+            <div id="pkStatus" style="text-align: center; margin-bottom: 5px; font-weight: 800; font-size: 0.9rem;">
+                AWAITING CHALLENGE
+            </div>
+            <div class="pk-bar-wrapper">
+                <div id="hostABar" class="pk-bar-a"></div>
+                <div id="hostBBar" class="pk-bar-b"></div>
+            </div>
+            <div class="vs-indicator">VS</div>
+            <div style="display: flex; justify-content: space-between; margin-top: 5px; font-size: 0.8rem;">
+                <span id="scoreA">0 pts</span>
+                <span id="scoreB">0 pts</span>
+            </div>
+        </div>
+        <div style="display: flex; gap: 1rem; align-items: center;">
+            <div id="connectionDot" style="width: 10px; height: 10px; border-radius: 50%; background: #ef4444;"></div>
+            <div id="viewers" style="font-size: 0.85rem;">Viewer Count: 0</div>
+        </div>
+    </header>
+
+    <main>
+        <!-- Video Section -->
+        <section>
+            <div class="arena">
+                <div class="video-box" id="hostAVBox">
+                    <div class="video-label" id="hostAName">Host A</div>
+                    <div id="hostAVideo" style="width: 100%; height: 100%;">
+                        <div class="video-placeholder">Offline</div>
+                    </div>
+                    <div class="video-controls" id="hostAControls" style="display: none;">
+                        <button class="v-btn" onclick="toggleMic()"><i id="micState">🎤</i></button>
+                        <button class="v-btn" onclick="toggleCam()"><i id="camState">📹</i></button>
+                        <button class="v-btn off" onclick="stopLive()">❌</button>
+                    </div>
+                </div>
+
+                <div class="video-box" id="hostBVBox">
+                    <div class="video-label" id="hostBName">Host B</div>
+                    <div id="hostBVideo" style="width: 100%; height: 100%;">
+                        <div class="video-placeholder">Offline</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="glass-card" style="margin-top: 1.5rem;">
+                <div class="section-title">Console Output</div>
+                <div id="logScreen" class="logs">Initializing production test suite...</div>
+            </div>
+        </section>
+
+        <!-- Sidebar Section -->
+        <section class="panel">
+            <!-- Auth -->
+            <div class="glass-card">
+                <div class="section-title">Step 1: Authorization</div>
+                <div class="input-stack">
+                    <div class="input-group">
+                        <label>Socket URL</label>
+                        <input id="socketUrl" value="https://ulive.devloperhemant.com" />
+                    </div>
+                    <div class="input-group">
+                        <label>JWT Token</label>
+                        <input id="jwtToken" type="password" placeholder="Enter session token..." />
+                    </div>
+                    <button id="connectBtn" class="btn-glow" onclick="initCore()">Connect & GO LIVE</button>
+                </div>
+            </div>
+
+            <!-- Battle Controls -->
+            <div class="glass-card">
+                <div class="section-title">Step 2: Battle Management</div>
+                <div class="input-stack">
+                    <div class="input-group">
+                        <label>Target User ID (For Challenge/Gift)</label>
+                        <input id="targetId" placeholder="User ObjectID" />
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+                        <button class="btn-outline" onclick="createBattle()">Challenge</button>
+                        <button id="startBattleBtn" class="btn-glow" style="display: none;" onclick="startBattle()">Accept & Start</button>
+                        <button class="btn-outline" onclick="joinRoom()">Join Room</button>
+                    </div>
+                    <div class="input-group" style="margin-top: 5px;">
+                        <label>Current Room/Battle ID</label>
+                        <input id="battleId" placeholder="Wait for event or enter ID" />
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chat & Gifts -->
+            <div class="glass-card chat-container">
+                <div class="section-title">
+                    Live Interactions
+                    <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
+                        <span style="font-size: 0.6rem; color: #10b981;">● SOCKET ONLINE</span>
+                        <span id="zegoStatus" style="font-size: 0.6rem; color: #ef4444;">● ZEGO SDK LOADING...</span>
+                    </div>
+                </div>
+                
+                <div class="gift-grid">
+                    <div class="gift-item" onclick="sendGift('65da98765432109876543210')">
+                        🎁 <span>Small Gift (10)</span>
+                    </div>
+                    <div class="gift-item" onclick="sendGift('65da98765432109876543211')">
+                        🚀 <span>Super Rocket (100)</span>
+                    </div>
+                    <div class="gift-item" onclick="voteHost()">
+                        🗳️ <span>Vote Host</span>
+                    </div>
+                </div>
+
+                <div class="chat-feed" id="chatFeed">
+                    <!-- Messages appear here -->
+                </div>
+
+                <div class="input-stack" style="margin-top: 1rem;">
+                    <input id="chatInput" placeholder="Send a message..." onkeypress="if(event.key==='Enter') sendChat()" />
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        /**
+         * PRODUCTION CONFIGURATION
+         */
+        const ZEGO_APP_ID = 1780364802; 
+        const SERVER_URL = 'wss://webliveroom1780364802-api.coolzcloud.com/ws';
+
+        let zg = null;
+        let socket = null;
+        let localStream = null;
+        let isScreenSharing = false;
+        let currentUserId = null;
+        
+        let scoreA = 0;
+        let scoreB = 0;
+
+        // --- UTILS ---
+        function logger(msg, isError = false) {
+            screenLog(msg, isError);
+        }
+
+        function updatePKBar() {
+            const total = scoreA + scoreB;
+            const barA = document.getElementById('hostABar');
+            const barB = document.getElementById('hostBBar');
+            
+            if (total === 0) {
+                barA.style.width = '50%';
+                barB.style.width = '50%';
+                return;
+            }
+
+            const pA = (scoreA / total) * 100;
+            const pB = (scoreB / total) * 100;
+            
+            barA.style.width = `${pA}%`;
+            barB.style.width = `${pB}%`;
+            
+            document.getElementById('scoreA').innerText = `${scoreA} pts`;
+            document.getElementById('scoreB').innerText = `${scoreB} pts`;
+        }
+
+        // --- CORE CORE CORE ---
+        
+        async function initCore() {
+            const url = document.getElementById('socketUrl').value;
+            const token = document.getElementById('jwtToken').value;
+
+            if(!token) return alert("JWT Token required!");
+
+            // 1. Double check Zego SDK with extended timeout
+            let isZegoLoaded = window.ZegoExpressEngine || (window.Zego && window.Zego.ZegoExpressEngine);
+            if (!isZegoLoaded) {
+                logger("⏳ Zego SDK not ready. Waiting up to 10 seconds...", true);
+                for (let i = 0; i < 10; i++) {
+                    await new Promise(r => setTimeout(r, 1000));
+                    isZegoLoaded = window.ZegoExpressEngine || (window.Zego && window.Zego.ZegoExpressEngine);
+                    if (isZegoLoaded) break;
+                    logger(`...waiting (${i+1}s)`);
+                }
+                
+                if (!isZegoLoaded) {
+                    return alert("Zego SDK failed to load after 10s. Please check your internet connection or try a different browser.");
+                }
+            }
+
+            // 2. Socket Connection
+            socket = io(url, {
+                query: { token },
+                transports: ['websocket']
+            });
+
+            socket.on('connect', () => {
+                logger("✅ Socket connected as User");
+                document.getElementById('connectionDot').style.background = '#10b981';
+                
+                // Go Live immediately after socket connect
+                socket.emit('goLive');
+            });
+
+            socket.on('disconnect', () => {
+                logger("❌ Socket disconnected", true);
+                document.getElementById('connectionDot').style.background = '#ef4444';
+            });
+
+            socket.on('errorMessage', (msg) => logger(`⚠️ ERROR: ${msg}`, true));
+
+            // 2. Battle Socket Listeners
+            socket.on('liveStarted', async (data) => {
+                logger(`🚀 LIVE SESSION STARTED: ${data.battleId}`);
+                document.getElementById('battleId').value = data.battleId;
+                document.getElementById('hostAName').innerText = data.hostName || "Me (Host A)";
+                document.getElementById('pkStatus').innerText = "LIVE - SOLO STREAM";
+                
+                await startZego(data.roomID, data.token);
+            });
+
+            socket.on('battleRequest', (data) => {
+                logger(`⚔️ BATTLE REQUEST FROM: ${data.hostA.name}`);
+                document.getElementById('battleId').value = data._id;
+                document.getElementById('startBattleBtn').style.display = 'block';
+                document.getElementById('pkStatus').innerText = "CHALLENGE RECEIVED!";
+                
+                // Fancy alert
+                if(confirm(`Accept battle request from ${data.hostA.name}?`)) {
+                    startBattle();
+                }
+            });
+
+            socket.on('zegoToken', async (data) => {
+                logger("🔑 Received Zego Credentials, joining room...");
+                document.getElementById('battleId').value = data.roomID;
+                await startZego(data.roomID, data.token);
+            });
+
+            socket.on('battleStarted', (data) => {
+                logger("🔥 THE BATTLE IS ON!");
+                confetti({
+                    particleCount: 150,
+                    spread: 70,
+                    origin: { y: 0.6 }
+                });
+                document.getElementById('pkStatus').innerText = "V.S. BATTLE LIVE";
+                document.getElementById('hostAName').innerText = data.hostA.name || "Host A";
+                document.getElementById('hostBName').innerText = data.hostB.name || "Host B";
+            });
+
+            socket.on('viewUpdate', (count) => {
+                document.getElementById('viewers').innerText = `Viewer Count: ${count}`;
+            });
+
+            socket.on('commentUpdate', (data) => {
+                appendChatMessage(data.userName || data.userId, data.message, data.userAvatar);
+            });
+
+            socket.on('scoreUpdate', (data) => {
+                const { scoreField, amount } = data;
+                if(scoreField === 'hostAScore') scoreA += amount;
+                else scoreB += amount;
+                updatePKBar();
+            });
+
+            socket.on('voteUpdate', (data) => {
+                logger(`🗳️ Votes Updated: A(${data.hostAVotes}) B(${data.hostBVotes})`);
+            });
+
+            socket.on('battleEnded', (data) => {
+                logger(`🛑 BATTLE ENDED. Winner: ${data.winner || 'Tie'}`);
+                document.getElementById('pkStatus').innerText = "BATTLE FINISHED";
+                stopZego();
+            });
+        }
+
+        // --- ZEGO ENGINE ---
+
+        async function startZego(roomID, token) {
+            try {
+                logger("🔍 Detecting Zego Engine...");
+                
+                // Detailed check of window object
+                if (window.ZegoExpressEngine) {
+                    logger("✅ Found ZegoExpressEngine on window");
+                    zg = new window.ZegoExpressEngine(ZEGO_APP_ID, SERVER_URL);
+                } else if (window.Zego && window.Zego.ZegoExpressEngine) {
+                    logger("✅ Found Zego.ZegoExpressEngine on window");
+                    zg = new window.Zego.ZegoExpressEngine(ZEGO_APP_ID, SERVER_URL);
+                } else {
+                    const zegoKeys = Object.keys(window).filter(k => k.toLowerCase().includes('zego'));
+                    logger(`❌ Zego not found. Available keys: ${zegoKeys.join(', ') || 'none'}`, true);
+                    throw new Error("ZegoExpressEngine is not defined. Please check if the SDK script is loaded and not blocked.");
+                }
+
+                logger("📸 Zego Engine Instance Created");
+
+                // Login Room
+                await zg.loginRoom(roomID, token, { userID: `user_${Math.floor(Math.random()*1000)}`, userName: "Tester" });
+                logger(`🏠 Logged into Room: ${roomID}`);
+
+                // Check if we are host or viewer
+                // For this test, we try to share camera by default if we are the one who clicked 'Connect'
+                // This logic is simplified for testing
+                await publishLocalStream(roomID);
+
+                // Listen for Remote Streams
+                zg.on('roomStreamUpdate', async (roomID, updateType, streamList) => {
+                    if (updateType == 'ADD') {
+                        for (let stream of streamList) {
+                            logger(`🎥 Remote Stream Added: ${stream.streamID}`);
+                            const remoteView = await zg.createRemoteStreamView(stream.streamID);
+                            
+                            // Sort into Host A or Host B box
+                            // Simple logic: If it's the first remote, put in B box
+                            const container = document.getElementById('hostBVideo');
+                            container.innerHTML = '';
+                            remoteView.play(container, { objectFit: "cover" });
+                        }
+                    } else if (updateType == 'DELETE') {
+                        streamList.forEach(s => logger(`📽️ Stream Removed: ${s.streamID}`));
+                    }
+                });
+
+            } catch (err) {
+                logger(`❌ Zego Startup Failed: ${err.message}`, true);
+            }
+        }
+
+        async function publishLocalStream(roomID) {
+            try {
+                localStream = await zg.createStream({
+                    camera: { audio: true, video: true }
+                });
+                
+                const localView = document.getElementById('hostAVideo');
+                localView.innerHTML = '';
+                const videoElement = await zg.createLocalStreamView(localStream);
+                videoElement.play(localView, { objectFit: "cover" });
+
+                const streamID = `stream_${new Date().getTime()}`;
+                zg.startPublishingStream(streamID, localStream);
+                
+                document.getElementById('hostAControls').style.display = 'flex';
+                document.getElementById('hostAVBox').classList.add('active');
+                logger(`📡 Publishing Local Stream: ${streamID}`);
+
+            } catch (err) {
+                logger(`⚠️ Camera Access Denied: ${err.message}`, true);
+                alert("Please allow Camera/Mic access to test host features.");
+            }
+        }
+
+        function stopZego() {
+            if(zg) {
+                zg.stopPublishingStream();
+                zg.destroyStream(localStream);
+                zg.logoutRoom();
+                logger("⏹️ Streaming Stopped & Cleaned up");
+            }
+        }
+
+        // --- CONTROLS ---
+
+        function createBattle() {
+            const oppId = document.getElementById('targetId').value;
+            if(!oppId) return alert("Target ID is required to challenge");
+            socket.emit('createBattle', { opponentId: oppId, duration: 120 });
+            logger(`⚔️ Sending battle challenge to ${oppId}...`);
+        }
+
+        function startBattle() {
+            const bId = document.getElementById('battleId').value;
+            socket.emit('startBattle', { battleId: bId });
+            document.getElementById('startBattleBtn').style.display = 'none';
+        }
+
+        function joinRoom() {
+            const bId = document.getElementById('battleId').value;
+            if(!bId) return alert("Room ID required to join as viewer");
+            socket.emit('joinBattle', { battleId: bId });
+            logger(`👤 Joining battle ${bId} as viewer`);
+        }
+
+        function sendChat() {
+            const bId = document.getElementById('battleId').value;
+            const msg = document.getElementById('chatInput').value;
+            if(!bId || !msg) return;
+            socket.emit('battleComment', { battleId: bId, message: msg });
+            document.getElementById('chatInput').value = '';
+        }
+
+        function appendChatMessage(name, msg, avatar) {
+            const feed = document.getElementById('chatFeed');
+            const html = `
+                <div class="chat-msg">
+                    <img src="${avatar || 'https://i.pravatar.cc/100'}" class="avatar-small">
+                    <div class="msg-bubble">
+                        <span class="uname">${name}:</span>
+                        <span class="text">${msg}</span>
+                    </div>
+                </div>
+            `;
+            feed.insertAdjacentHTML('afterbegin', html);
+        }
+
+        function sendGift(giftId) {
+            const bId = document.getElementById('battleId').value;
+            const hostId = document.getElementById('targetId').value || '65da98765432109876543212'; // fallback for demo
+            if(!bId) return alert("You must be in a battle to send gifts");
+            socket.emit('battleGift', { battleId: bId, giftId, hostId });
+            logger(`🎁 Sending gift ${giftId} to host ${hostId}`);
+        }
+
+        function voteHost() {
+            const bId = document.getElementById('battleId').value;
+            const hostId = document.getElementById('targetId').value;
+            if(!bId || !hostId) return alert("Battle ID and Target Host ID required");
+            socket.emit('voteHost', { battleId: bId, hostId });
+            logger(`🗳️ Voting for host: ${hostId}`);
+        }
+
+        // --- MEDIA TOGGLES ---
+        let micOn = true;
+        let camOn = true;
+
+        function toggleMic() {
+            micOn = !micOn;
+            zg.mutePublishStreamAudio(localStream, !micOn);
+            document.getElementById('micState').innerText = micOn ? '🎤' : '🔇';
+            document.getElementById('micState').parentElement.classList.toggle('off', !micOn);
+        }
+
+        function toggleCam() {
+            camOn = !camOn;
+            zg.mutePublishStreamVideo(localStream, !camOn);
+            document.getElementById('camState').innerText = camOn ? '📹' : '🚫';
+            document.getElementById('camState').parentElement.classList.toggle('off', !camOn);
+        }
+
+        function stopLive() {
+            if(confirm("Are you sure you want to end the stream?")) {
+                stopZego();
+                location.reload();
+            }
+        }
+
+    </script>
+</body>
+</html>

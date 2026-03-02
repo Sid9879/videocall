@@ -22,18 +22,6 @@ const reconnectTimeouts = new Map();
 const onlineHosts = new Set(); // Tracks UserIDs of verified hosts currently online
 const activeRandomInvites = new Set(); // Tracks HostA IDs who have an active random broadcast
 
-function authenticateSocket(socket, next) {
-  try {
-    const token = socket.handshake.query.token;
-    if (!token) return next(new Error("Unauthorized"));
-
-    const decoded = jwt.verify(token, config.jwtSecret.jwtSecret);
-    socket.userId = decoded._id;
-    next();
-  } catch {
-    next(new Error("Unauthorized"));
-  }
-}
 
 async function notifyFollowers(userId, title, message, io) {
   try {
@@ -90,7 +78,7 @@ module.exports = function (io, socket) {
   socket.join(socket.userId.toString());
 
   
-  socket.on("inviteRandomHost", async ({ duration = 120 }) => {
+  socket.on("inviteRandomHost", async ({ duration = 300 }) => {
     try {
       const user = await User.findById(socket.userId);
       if (!user || user.role !== "host" || !user.hostVerification?.isVerified) {
@@ -126,7 +114,7 @@ module.exports = function (io, socket) {
     }
   });
 
-  socket.on("acceptRandomInvite", async ({ hostAId, duration = 120 }) => {
+  socket.on("acceptRandomInvite", async ({ hostAId, duration = 300 }) => {
     try {
       const userB = await User.findById(socket.userId);
       if (!userB || userB.role !== "host" || !userB.hostVerification?.isVerified) {
@@ -215,7 +203,7 @@ module.exports = function (io, socket) {
     }
   });
 
-  socket.on("createBattle", async ({ opponentId, duration = 120 }) => {
+  socket.on("createBattle", async ({ opponentId, duration = 300 }) => {
     try {
       const user = await User.findById(socket.userId);
       if (!user || user.role !== "host" || !user.hostVerification?.isVerified) {

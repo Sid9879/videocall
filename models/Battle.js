@@ -14,7 +14,7 @@ const BattleSchema = new mongoose.Schema({
     default: false
   },
   liveDuration: { type: Number, default: 0 }, // Duration in seconds
-  duration: { type: Number, default: 120 },
+  duration: { type: Number },
 
   startTime: Date,
   endTime: Date,

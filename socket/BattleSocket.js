@@ -285,8 +285,8 @@ module.exports = function (io, socket) {
         generateZegoToken({ userID: battle.hostB._id.toString(), roomID, publish: true, login: true })
       ]);
 
-      io.to(battle.hostA._id.toString()).emit("zegoToken", { roomID, ...hostAToken });
-      io.to(battle.hostB._id.toString()).emit("zegoToken", { roomID, ...hostBToken });
+            io.to(battle.hostA._id.toString()).emit("zegoToken", { roomID, ...hostAToken, hostA: battle.hostA._id, hostB: battle.hostB._id });
+            io.to(battle.hostB._id.toString()).emit("zegoToken", { roomID, ...hostBToken, hostA: battle.hostA._id, hostB: battle.hostB._id });
 
       await Promise.all([
         notifyFollowers(battle.hostA, "Battle Live 🚀", "Influencer is live!", io),
@@ -371,20 +371,26 @@ module.exports = function (io, socket) {
       } else {
         battle = await Battle.findOne({ _id: battleId, status: "live" });
       }
-
+      //added
+      await Battle.findOne({ _id: battleId, status: "live" })
+                .populate("hostA", "name avatar")
+                .populate("hostB", "name avatar");
+                //end
       if (!battle)
         return socket.emit("errorMessage", "Live session not found or ended");
 
       io.to(battleId).emit("viewUpdate", battle.viewCount);
-
+      //added
+      socket.emit("battleStarted", battle); //end
       const viewerToken = await generateZegoToken({
         userID: socket.userId.toString(),
         roomID: battleId,
         publish: false,
         login: true
       });
-
-      socket.emit("zegoToken", { roomID: battleId, ...viewerToken });
+      //upd
+      socket.emit("zegoToken", { roomID: battleId, ...viewerToken , hostA: battle.hostA._id,
+                hostB: battle.hostB ? battle.hostB._id : null});
       socket.emit("battleHistory", battle.scoreHistory);
     } catch (err) {
       console.error("joinBattle error:", err);

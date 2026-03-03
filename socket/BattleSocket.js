@@ -15,6 +15,9 @@ const HostLeaderboard = require('../models/HostLeaderboard')
 
 const generateZegoToken = require("../utility/generateZegoToken");
 
+const today = new Date();
+today.setHours(0, 0, 0, 0);
+
 const activeBattles = new Map();
 const battleIntervals = new Map();
 const reconnectTimeouts = new Map();
@@ -455,7 +458,10 @@ module.exports = function (io, socket) {
         User.findByIdAndUpdate(hostId,{$inc: {diamondWallet: gift.cost,giftReceivedCount: 1,giftReceivedValue: gift.cost}}),
         Battle.findByIdAndUpdate(battleId, { $inc: { [scoreField]: gift.cost } }),
         HostLeaderboard.findOneAndUpdate(
-          { hostId },
+            {
+    hostId,
+    date: today
+  },
           {
             $inc: {
               receivedCoinValue: gift.cost,

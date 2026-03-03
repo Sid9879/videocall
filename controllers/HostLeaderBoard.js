@@ -32,7 +32,7 @@ exports.getHostLeaderboard = async (req, res) => {
     const endUTC = new Date(endDate.getTime() - IST_OFFSET);
 
     const matchStage = {
-      createdAt: { $gte: startUTC, $lt: endUTC }
+      date: { $gte: startUTC, $lt: endUTC }
     };
 
     //Build rank array (ALL users)

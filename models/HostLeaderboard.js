@@ -9,6 +9,11 @@ const HostLeaderboardSchema = new mongoose.Schema(
       unique: true,
       index: true
     },
+      date: {
+      type: Date,
+      required: true,
+      index: true
+    },
 
     receivedCoinValue: {
       type: Number,
@@ -24,4 +29,8 @@ const HostLeaderboardSchema = new mongoose.Schema(
   { timestamps: true }
 );
 HostLeaderboardSchema.index({hostId:1});
+HostLeaderboardSchema.index(
+  { hostId: 1, date: 1 },
+  { unique: true }
+);
 module.exports = mongoose.model("HostLeaderboard", HostLeaderboardSchema);

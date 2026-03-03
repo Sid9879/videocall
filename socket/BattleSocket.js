@@ -355,12 +355,12 @@ module.exports = function (io, socket) {
       });
 
       let battle;
-      if (!isAlreadyJoined) {
+          if (!isAlreadyJoined) {
         battle = await Battle.findOneAndUpdate(
           { _id: battleId, status: "live" },
           { $inc: { viewCount: 1 } },
           { new: true }
-        );
+        ).populate("hostA", "name avatar").populate("hostB", "name avatar");
 
         await LiveHistoryRecord.findOneAndUpdate(
           { battleId },

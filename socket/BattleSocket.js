@@ -369,13 +369,10 @@ module.exports = function (io, socket) {
           }
         );
       } else {
-        battle = await Battle.findOne({ _id: battleId, status: "live" });
+        battle = await Battle.findOne({ _id: battleId, status: "live" })
+                    .populate("hostA", "name avatar")
+                    .populate("hostB", "name avatar");
       }
-      //added
-      await Battle.findOne({ _id: battleId, status: "live" })
-                .populate("hostA", "name avatar")
-                .populate("hostB", "name avatar");
-                //end
       if (!battle)
         return socket.emit("errorMessage", "Live session not found or ended");
 

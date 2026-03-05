@@ -38,9 +38,7 @@ app.use('/api/public',public);
 app.use('/api/media',media);
 app.use("/api/zego", zegoRoutes);
 
-app.get('/',(req,res)=>{
-  res.send("Welcome to the API");
-})
+app.use((req, res) => res.status(404).json({ message: "Route not found" }));
 
 server.listen(config.http.port , ()=>{
      console.log("Server started successfully at port " + config.http.port)

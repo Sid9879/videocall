@@ -24,7 +24,7 @@ const reconnectTimeouts = new Map();
 
 const onlineHosts = new Set(); // Tracks UserIDs of verified hosts currently online
 const activeRandomInvites = new Set(); // Tracks HostA IDs who have an active random broadcast
-
+const kickedUsers = new Map();  //used for tracking user kick out
 
 async function notifyFollowers(userId, title, message, io) {
   try {
@@ -341,6 +341,10 @@ module.exports = function (io, socket) {
 
 
   socket.on("joinBattle", async ({ battleId }) => {
+    //Kick out check
+    if (kickedUsers.get(battleId)?.includes(socket.userId.toString())) {
+    return socket.emit("errorMessage", "You were removed by host");
+  }
     try {
       if (socket.rooms.has(battleId.toString())) return;
 
@@ -680,6 +684,60 @@ module.exports = function (io, socket) {
     console.error("disconnect error:", err);
   }
 });
+//KickOut
+socket.on("kickViewer", async ({ battleId, viewerId }) => {
+  try {
+    const battle = await Battle.findById(battleId);
+
+    if (!battle || battle.status !== "live") {
+      return socket.emit("errorMessage", "Live not active");
+    }
+
+    const isHost =
+      battle.hostA.toString() === socket.userId.toString() ||
+      (battle.hostB && battle.hostB.toString() === socket.userId.toString());
+
+    if (!isHost) {
+      return socket.emit("errorMessage", "Only host can remove viewers");
+    }
+
+    if (
+      viewerId === battle.hostA.toString() ||
+      viewerId === battle.hostB?.toString()
+    ) {
+      return socket.emit("errorMessage", "Cannot remove a host");
+    }
+
+    // STORE kicked viewer
+    if (!kickedUsers.has(battleId)) {
+      kickedUsers.set(battleId, []);
+    }
+
+    const viewers = kickedUsers.get(battleId);
+    if (!viewers.includes(viewerId)) {
+      viewers.push(viewerId);
+    }
+
+    const sockets = await io.in(battleId).fetchSockets();
+
+    sockets.forEach((s) => {
+      if (s.userId.toString() === viewerId.toString()) {
+
+        s.leave(battleId);
+
+        s.emit("kickedFromLive", {
+          battleId,
+          message: "You were removed by host"
+        });
+
+        io.to(battleId).emit("viewerRemoved", { viewerId });
+      }
+    });
+
+  } catch (err) {
+    console.error("kickViewer error:", err);
+  }
+});
 };
 
 
@@ -786,6 +844,7 @@ async function forceEndBattle(battleId, io, reason = "time_up") {
     });
 
     activeBattles.delete(battleId);
+    kickedUsers.delete(battleId); //kick out clear
 
     const intervalId = battleIntervals.get(battleId);
 

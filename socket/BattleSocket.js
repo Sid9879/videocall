@@ -735,52 +735,60 @@ module.exports = function (io, socket) {
 //   }
 // }
 
-async function forceEndBattle(battleId, io, reason, manualDuration) {
+async function forceEndBattle(battleId, io, reason = "time_up") {
   try {
     const battle = await Battle.findById(battleId);
 
     if (!battle || battle.status === "ended") return;
 
-    battle.status = "ended";
-    battle.endTime = new Date();
+    const now = new Date();
 
-    if (manualDuration !== undefined) {
-      battle.liveDuration = manualDuration;
-    } else if (battle.startTime) {
-      battle.liveDuration = Math.floor(
-        (battle.endTime - battle.startTime) / 1000
-      );
+    let liveDuration = 0;
+
+    if (battle.startTime) {
+      liveDuration = Math.floor((now - battle.startTime) / 1000);
     }
 
     let winner = null;
+    let result = "draw";
 
-    if (battle.hostAScore > battle.hostBScore)
+    if (battle.hostAScore > battle.hostBScore) {
       winner = battle.hostA;
-    else if (battle.hostBScore > battle.hostAScore)
+      result = "hostA";
+    } 
+    else if (battle.hostBScore > battle.hostAScore) {
       winner = battle.hostB;
+      result = "hostB";
+    }
 
+    battle.status = "ended";
+    battle.endTime = now;
+    battle.liveDuration = liveDuration;
     battle.winner = winner;
 
     await battle.save();
 
-    // notify all clients
     io.to(battleId).emit("battleEnded", {
       reason,
+      result,
+      winner,
       hostAScore: battle.hostAScore,
       hostBScore: battle.hostBScore,
       hostAVotes: battle.hostAVotes,
       hostBVotes: battle.hostBVotes,
-      winner
+      liveDuration
     });
 
-    // remove everyone from room
     const sockets = await io.in(battleId).fetchSockets();
-    sockets.forEach(s => s.leave(battleId));
 
-    //CLEAN MEMORY
+    sockets.forEach((s) => {
+      s.leave(battleId);
+    });
+
     activeBattles.delete(battleId);
 
     const intervalId = battleIntervals.get(battleId);
+
     if (intervalId) {
       clearInterval(intervalId);
       battleIntervals.delete(battleId);
@@ -793,7 +801,7 @@ async function forceEndBattle(battleId, io, reason, manualDuration) {
       }
     }
 
-    console.log(`Battle ${battleId} ended (${reason})`);
+    console.log(`Battle ${battleId} ended successfully`);
 
   } catch (err) {
     console.error("forceEndBattle error:", err);

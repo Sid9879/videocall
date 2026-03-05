@@ -173,7 +173,12 @@ module.exports = function (io, socket) {
 
       const roomID = battle._id.toString();
       socket.join(roomID);
-
+      
+       activeBattles.set(roomID, {
+      hostA: socket.userId.toString(),
+      hostB: null,
+      isSolo: true
+    });
       const hostToken = await generateZegoToken({
         userID: socket.userId.toString(),
         roomID,
@@ -578,90 +583,201 @@ module.exports = function (io, socket) {
   });
 
 
+  // socket.on("disconnect", async () => {
+  //   try {
+  //     // Remove from online hosts map
+  //     onlineHosts.delete(socket.userId.toString());
+  //     activeRandomInvites.delete(socket.userId.toString());
+
+  //     for (const [battleId, hosts] of activeBattles.entries()) {
+  //       const isHostA = hosts.hostA === socket.userId.toString();
+  //       const isHostB = hosts.hostB && hosts.hostB === socket.userId.toString();
+
+  //       if (isHostA || isHostB) {
+  //         const timeoutKey = `${battleId}_${socket.userId}`;
+
+  //         io.to(battleId).emit("hostStatusUpdate", { hostId: socket.userId, status: "disconnected" });
+          
+  //         const timeoutId = setTimeout(async () => {
+  //           try {
+  //             await forceEndBattle(battleId, io, "host_left");
+  //           } catch (endErr) {
+  //             console.error("Error ending battle after timeout:", endErr);
+  //           }
+  //           reconnectTimeouts.delete(timeoutKey);
+  //         }, 30000);
+
+  //         reconnectTimeouts.set(timeoutKey, timeoutId);
+  //       }
+  //     }
+  //     console.log("Disconnected:", socket.userId);
+  //   } catch (err) {
+  //     console.error("disconnect error:", err);
+  //   }
+  // });
+
   socket.on("disconnect", async () => {
-    try {
-      // Remove from online hosts map
-      onlineHosts.delete(socket.userId.toString());
-      activeRandomInvites.delete(socket.userId.toString());
+  try {
+    onlineHosts.delete(socket.userId.toString());
+    activeRandomInvites.delete(socket.userId.toString());
 
-      for (const [battleId, hosts] of activeBattles.entries()) {
-        const isHostA = hosts.hostA === socket.userId.toString();
-        const isHostB = hosts.hostB && hosts.hostB === socket.userId.toString();
+    for (const [battleId, hosts] of activeBattles.entries()) {
 
-        if (isHostA || isHostB) {
-          const timeoutKey = `${battleId}_${socket.userId}`;
+      const isHostA = hosts.hostA === socket.userId.toString();
+      const isHostB =
+        hosts.hostB && hosts.hostB === socket.userId.toString();
 
-          io.to(battleId).emit("hostStatusUpdate", { hostId: socket.userId, status: "disconnected" });
+      if (!isHostA && !isHostB) continue;
 
-          const timeoutId = setTimeout(async () => {
-            try {
-              await forceEndBattle(battleId, io, "host_left");
-            } catch (endErr) {
-              console.error("Error ending battle after timeout:", endErr);
-            }
-            reconnectTimeouts.delete(timeoutKey);
-          }, 30000);
+      // Notify viewers
+      io.to(battleId).emit("hostStatusUpdate", {
+        hostId: socket.userId,
+        status: "disconnected"
+      });
 
-          reconnectTimeouts.set(timeoutKey, timeoutId);
-        }
+      // SOLO LIVE → END IMMEDIATELY
+      if (hosts.isSolo) {
+        await forceEndBattle(battleId, io, "host_left");
+        continue;
       }
-      console.log("Disconnected:", socket.userId);
-    } catch (err) {
-      console.error("disconnect error:", err);
-    }
-  });
 
+      //BATTLE → WAIT 30s FOR RECONNECT
+      const timeoutKey = `${battleId}_${socket.userId}`;
+
+      const timeoutId = setTimeout(async () => {
+        try {
+          await forceEndBattle(battleId, io, "host_left");
+        } catch (err) {
+          console.error("Auto end error:", err);
+        }
+        reconnectTimeouts.delete(timeoutKey);
+      }, 30000);
+
+      reconnectTimeouts.set(timeoutKey, timeoutId);
+    }
+
+    console.log("Disconnected:", socket.userId);
+
+  } catch (err) {
+    console.error("disconnect error:", err);
+  }
+});
 };
 
 
+// async function forceEndBattle(battleId, io, reason, manualDuration) {
+
+//   const battle = await Battle.findById(battleId);
+//   if (!battle || battle.status === "ended") return;
+
+//   battle.status = "ended";
+//   battle.endTime = new Date();
+
+//   if (manualDuration !== undefined) {
+//     battle.liveDuration = manualDuration;
+//   } else if (battle.startTime) {
+//     const durationInSeconds = Math.floor((battle.endTime - battle.startTime) / 1000);
+//     battle.liveDuration = durationInSeconds;
+//   }
+
+//   let winner = null;
+//   if (battle.hostAScore > battle.hostBScore)
+//     winner = battle.hostA;
+//   else if (battle.hostBScore > battle.hostAScore)
+//     winner = battle.hostB;
+
+//   battle.winner = winner;
+//   await battle.save();
+
+//   io.to(battleId).emit("battleEnded", {
+//     reason,
+//     hostAScore: battle.hostAScore,
+//     hostBScore: battle.hostBScore,
+//     hostAVotes: battle.hostAVotes,
+//     hostBVotes: battle.hostBVotes,
+//     winner
+//   });
+
+//   const sockets = await io.in(battleId).fetchSockets();
+//   sockets.forEach(s => s.leave(battleId));
+
+//   activeBattles.delete(battleId);
+
+//   const intervalId = battleIntervals.get(battleId);
+//   if (intervalId) {
+//     clearInterval(intervalId);
+//     battleIntervals.delete(battleId);
+//   }
+
+//   for (const [key, timeoutId] of reconnectTimeouts.entries()) {
+//     if (key.startsWith(`${battleId}_`)) {
+//       clearTimeout(timeoutId);
+//       reconnectTimeouts.delete(key);
+//     }
+//   }
+// }
+
 async function forceEndBattle(battleId, io, reason, manualDuration) {
+  try {
+    const battle = await Battle.findById(battleId);
 
-  const battle = await Battle.findById(battleId);
-  if (!battle || battle.status === "ended") return;
+    if (!battle || battle.status === "ended") return;
 
-  battle.status = "ended";
-  battle.endTime = new Date();
+    battle.status = "ended";
+    battle.endTime = new Date();
 
-  if (manualDuration !== undefined) {
-    battle.liveDuration = manualDuration;
-  } else if (battle.startTime) {
-    const durationInSeconds = Math.floor((battle.endTime - battle.startTime) / 1000);
-    battle.liveDuration = durationInSeconds;
-  }
-
-  let winner = null;
-  if (battle.hostAScore > battle.hostBScore)
-    winner = battle.hostA;
-  else if (battle.hostBScore > battle.hostAScore)
-    winner = battle.hostB;
-
-  battle.winner = winner;
-  await battle.save();
-
-  io.to(battleId).emit("battleEnded", {
-    reason,
-    hostAScore: battle.hostAScore,
-    hostBScore: battle.hostBScore,
-    hostAVotes: battle.hostAVotes,
-    hostBVotes: battle.hostBVotes,
-    winner
-  });
-
-  const sockets = await io.in(battleId).fetchSockets();
-  sockets.forEach(s => s.leave(battleId));
-
-  activeBattles.delete(battleId);
-
-  const intervalId = battleIntervals.get(battleId);
-  if (intervalId) {
-    clearInterval(intervalId);
-    battleIntervals.delete(battleId);
-  }
-
-  for (const [key, timeoutId] of reconnectTimeouts.entries()) {
-    if (key.startsWith(`${battleId}_`)) {
-      clearTimeout(timeoutId);
-      reconnectTimeouts.delete(key);
+    if (manualDuration !== undefined) {
+      battle.liveDuration = manualDuration;
+    } else if (battle.startTime) {
+      battle.liveDuration = Math.floor(
+        (battle.endTime - battle.startTime) / 1000
+      );
     }
+
+    let winner = null;
+
+    if (battle.hostAScore > battle.hostBScore)
+      winner = battle.hostA;
+    else if (battle.hostBScore > battle.hostAScore)
+      winner = battle.hostB;
+
+    battle.winner = winner;
+
+    await battle.save();
+
+    // notify all clients
+    io.to(battleId).emit("battleEnded", {
+      reason,
+      hostAScore: battle.hostAScore,
+      hostBScore: battle.hostBScore,
+      hostAVotes: battle.hostAVotes,
+      hostBVotes: battle.hostBVotes,
+      winner
+    });
+
+    // remove everyone from room
+    const sockets = await io.in(battleId).fetchSockets();
+    sockets.forEach(s => s.leave(battleId));
+
+    //CLEAN MEMORY
+    activeBattles.delete(battleId);
+
+    const intervalId = battleIntervals.get(battleId);
+    if (intervalId) {
+      clearInterval(intervalId);
+      battleIntervals.delete(battleId);
+    }
+
+    for (const [key, timeoutId] of reconnectTimeouts.entries()) {
+      if (key.startsWith(`${battleId}_`)) {
+        clearTimeout(timeoutId);
+        reconnectTimeouts.delete(key);
+      }
+    }
+
+    console.log(`Battle ${battleId} ended (${reason})`);
+
+  } catch (err) {
+    console.error("forceEndBattle error:", err);
   }
 }

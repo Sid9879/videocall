@@ -350,6 +350,12 @@ module.exports = function (io, socket) {
 
       socket.join(battleId);
       const user = await User.findById(socket.userId);
+      //Notify host 
+      io.to(battleId).emit("viewerJoined", {
+    viewerId: socket.userId,
+    name: user.name,
+    avatar: user.avatar
+  }); //end
       if (user.isBlocked) {
         return socket.emit("errorMessage", "You are blocked from joining this battle by the admin.");
       }

@@ -202,7 +202,7 @@ module.exports = function (io, socket) {
       await notifyFollowers(
         socket.userId,
         "I'm Live! 🎥",
-        "Come join my live stream and chat!",
+        `Come join my live stream and chat!${user.name} BattleId${battle._id}is now live!`,
         io
       );
     } catch (err) {
@@ -242,7 +242,7 @@ module.exports = function (io, socket) {
       await notifyFollowers(
         socket.userId,
         "Battle Started 🔥",
-        "Your favorite influencer just started a battle!",
+        `${user.name} just started a battle! ${battle._id}`,
         io
       );
     } catch (err) {
@@ -297,8 +297,8 @@ module.exports = function (io, socket) {
             io.to(battle.hostB._id.toString()).emit("zegoToken", { roomID, ...hostBToken, hostA: battle.hostA._id, hostB: battle.hostB._id });
 
       await Promise.all([
-        notifyFollowers(battle.hostA, "Battle Live 🚀", "Influencer is live!", io),
-        notifyFollowers(battle.hostB, "Battle Live 🚀", "Influencer is live!", io)
+        notifyFollowers(battle.hostA, "Battle Live 🚀", `${battle.hostA.name} is live! ${battle._id}`, io),
+        notifyFollowers(battle.hostB, "Battle Live 🚀", `${battle.hostB.name} is live! ${battle._id}`, io)
       ]);
 
       setTimeout(() =>

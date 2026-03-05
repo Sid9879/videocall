@@ -565,22 +565,22 @@ module.exports = function (io, socket) {
   });
 
 
-  socket.on("endBattle", async ({ battleId, duration }) => {
-    try {
-      const battle = await Battle.findById(battleId);
-      if (!battle) return socket.emit("errorMessage", "Battle not found");
+  // socket.on("endBattle", async ({ battleId, duration }) => {
+  //   try {
+  //     const battle = await Battle.findById(battleId);
+  //     if (!battle) return socket.emit("errorMessage", "Battle not found");
 
-      // Only hosts can end the battle manually
-      if (![battle.hostA.toString(), battle.hostB?.toString()].includes(socket.userId.toString())) {
-        return socket.emit("errorMessage", "Not authorized to end this battle");
-      }
+  //     // Only hosts can end the battle manually
+  //     if (![battle.hostA.toString(), battle.hostB?.toString()].includes(socket.userId.toString())) {
+  //       return socket.emit("errorMessage", "Not authorized to end this battle");
+  //     }
 
-      await forceEndBattle(battleId, io, "manual_end", duration);
-    } catch (err) {
-      console.error("endBattle error:", err);
-      socket.emit("errorMessage", "Failed to end battle");
-    }
-  });
+  //     await forceEndBattle(battleId, io, "manual_end", duration);
+  //   } catch (err) {
+  //     console.error("endBattle error:", err);
+  //     socket.emit("errorMessage", "Failed to end battle");
+  //   }
+  // });
 
 
   // socket.on("disconnect", async () => {
@@ -615,6 +615,24 @@ module.exports = function (io, socket) {
   //     console.error("disconnect error:", err);
   //   }
   // });
+
+  socket.on("endBattle", async ({ battleId }) => {
+  try {
+    const battle = await Battle.findById(battleId);
+    if (!battle) return socket.emit("errorMessage", "Battle not found");
+
+    if (![battle.hostA.toString(), battle.hostB?.toString()]
+        .includes(socket.userId.toString())) {
+      return socket.emit("errorMessage", "Not authorized to end this battle");
+    }
+
+    await forceEndBattle(battleId, io, "manual_end");
+
+  } catch (err) {
+    console.error("endBattle error:", err);
+    socket.emit("errorMessage", "Failed to end battle");
+  }
+});
 
   socket.on("disconnect", async () => {
   try {

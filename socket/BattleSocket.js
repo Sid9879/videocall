@@ -11,7 +11,7 @@ const Purchase = require("../models/Purchase");
 const Follow = require("../models/Follow");
 const NotificationRecipient = require("../models/NotificationRecipient");
 const LiveHistoryRecord = require("../models/LiveHistoryRecord");
-const HostLeaderboard = require('../models/HostLeaderboard')
+const HostLeaderboard = require("../models/HostLeaderboard");
 
 const generateZegoToken = require("../utility/generateZegoToken");
 
@@ -24,7 +24,7 @@ const reconnectTimeouts = new Map();
 
 const onlineHosts = new Set(); // Tracks UserIDs of verified hosts currently online
 const activeRandomInvites = new Set(); // Tracks HostA IDs who have an active random broadcast
-const kickedUsers = new Map();  //used for tracking user kick out
+const kickedUsers = new Map(); //used for tracking user kick out
 
 async function notifyFollowers(userId, title, message, io) {
   try {
@@ -40,8 +40,8 @@ async function notifyFollowers(userId, title, message, io) {
 
     // 3. Combine into a unique set of IDs
     const recipientIds = new Set([
-      ...followers.map(f => f.follower.toString()),
-      ...following.map(f => f.following.toString())
+      ...followers.map((f) => f.follower.toString()),
+      ...following.map((f) => f.following.toString()),
     ]);
 
     // Remove self from recipients if present
@@ -52,27 +52,25 @@ async function notifyFollowers(userId, title, message, io) {
     const finalIds = Array.from(recipientIds);
 
     await NotificationRecipient.insertMany(
-      finalIds.map(id => ({
+      finalIds.map((id) => ({
         user: id,
         title,
         message,
-        type: "info"
-      }))
+        type: "info",
+      })),
     );
 
     io.to(finalIds).emit("newNotification", { title, message });
-
   } catch (err) {
     console.error("Notification error:", err);
   }
 }
 
 module.exports = function (io, socket) {
-
   console.log(`video active for: ${socket.userId}`);
-  
+
   // Track host availability for random invites
-  User.findById(socket.userId).then(user => {
+  User.findById(socket.userId).then((user) => {
     if (user && user.role === "host" && user.hostVerification?.isVerified) {
       onlineHosts.add(socket.userId.toString());
     }
@@ -80,32 +78,38 @@ module.exports = function (io, socket) {
 
   socket.join(socket.userId.toString());
 
-  
   socket.on("inviteRandomHost", async ({ duration = 300 }) => {
     try {
       const user = await User.findById(socket.userId);
       if (!user || user.role !== "host" || !user.hostVerification?.isVerified) {
-        return socket.emit("errorMessage", "Only verified hosts can invite others");
+        return socket.emit(
+          "errorMessage",
+          "Only verified hosts can invite others",
+        );
       }
 
-      const availableHosts = Array.from(onlineHosts).filter(id => id !== socket.userId.toString());
+      const availableHosts = Array.from(onlineHosts).filter(
+        (id) => id !== socket.userId.toString(),
+      );
 
       if (availableHosts.length === 0) {
-        return socket.emit("errorMessage", "No hosts are currently online for a random battle");
+        return socket.emit(
+          "errorMessage",
+          "No hosts are currently online for a random battle",
+        );
       }
 
-   
       const invitePayload = {
         hostA: {
           _id: user._id,
           name: user.name,
-          avatar: user.avatar
+          avatar: user.avatar,
         },
         duration,
-        type: "random_invite"
+        type: "random_invite",
       };
 
-      availableHosts.forEach(hostId => {
+      availableHosts.forEach((hostId) => {
         io.to(hostId).emit("randomBattleRequest", invitePayload);
       });
 
@@ -120,42 +124,63 @@ module.exports = function (io, socket) {
   socket.on("acceptRandomInvite", async ({ hostAId, duration = 300 }) => {
     try {
       const userB = await User.findById(socket.userId);
-      if (!userB || userB.role !== "host" || !userB.hostVerification?.isVerified) {
-        return socket.emit("errorMessage", "Only verified hosts can accept battles");
+      if (
+        !userB ||
+        userB.role !== "host" ||
+        !userB.hostVerification?.isVerified
+      ) {
+        return socket.emit(
+          "errorMessage",
+          "Only verified hosts can accept battles",
+        );
       }
 
       const userA = await User.findById(hostAId);
-      if (!userA) return socket.emit("errorMessage", "Original host is no longer available");
+      if (!userA)
+        return socket.emit(
+          "errorMessage",
+          "Original host is no longer available",
+        );
 
       if (!activeRandomInvites.delete(hostAId.toString())) {
-        return socket.emit("errorMessage", "This invite has already been accepted or is no longer valid");
+        return socket.emit(
+          "errorMessage",
+          "This invite has already been accepted or is no longer valid",
+        );
       }
 
       const battle = await Battle.create({
         hostA: hostAId,
         hostB: socket.userId,
         duration,
-        status: "pending"
+        status: "pending",
       });
 
       const roomID = battle._id.toString();
       socket.join(roomID);
-      
+
       const battleData = battle.toObject();
-      battleData.hostA = { _id: userA._id, name: userA.name, avatar: userA.avatar };
-      battleData.hostB = { _id: userB._id, name: userB.name, avatar: userB.avatar };
+      battleData.hostA = {
+        _id: userA._id,
+        name: userA.name,
+        avatar: userA.avatar,
+      };
+      battleData.hostB = {
+        _id: userB._id,
+        name: userB.name,
+        avatar: userB.avatar,
+      };
 
       io.to(hostAId.toString()).emit("randomInviteAccepted", battleData);
-      
-      io.to(roomID).emit("battleReady", { battleId: battle._id });
 
+      io.to(roomID).emit("battleReady", { battleId: battle._id });
     } catch (err) {
       console.error("acceptRandomInvite error:", err);
       socket.emit("errorMessage", "Failed to accept random invite");
     }
   });
 
-// ---------
+  // ---------
   socket.on("goLive", async () => {
     try {
       const user = await User.findById(socket.userId);
@@ -168,22 +193,22 @@ module.exports = function (io, socket) {
         hostB: null,
         status: "live",
         isGolive: true,
-        startTime: new Date()
+        startTime: new Date(),
       });
 
       const roomID = battle._id.toString();
       socket.join(roomID);
-      
-       activeBattles.set(roomID, {
-      hostA: socket.userId.toString(),
-      hostB: null,
-      isSolo: true
-    });
+
+      activeBattles.set(roomID, {
+        hostA: socket.userId.toString(),
+        hostB: null,
+        isSolo: true,
+      });
       const hostToken = await generateZegoToken({
         userID: socket.userId.toString(),
         roomID,
         publish: true,
-        login: true
+        login: true,
       });
 
       socket.emit("liveStarted", {
@@ -191,19 +216,19 @@ module.exports = function (io, socket) {
         roomID,
         hostName: user.name,
         hostAvatar: user.avatar,
-        ...hostToken
+        ...hostToken,
       });
 
       await LiveHistoryRecord.create({
         battleId: battle._id,
-        hostA: socket.userId
+        hostA: socket.userId,
       });
 
       await notifyFollowers(
         socket.userId,
         "I'm Live! 🎥",
         `Come join my live stream and chat!${user.name} BattleId${battle._id}is now live!`,
-        io
+        io,
       );
     } catch (err) {
       console.error("goLive error:", err);
@@ -215,17 +240,19 @@ module.exports = function (io, socket) {
     try {
       const user = await User.findById(socket.userId);
       if (!user || user.role !== "host" || !user.hostVerification?.isVerified) {
-        return socket.emit("errorMessage", "Only verified hosts can start a battle");
+        return socket.emit(
+          "errorMessage",
+          "Only verified hosts can start a battle",
+        );
       }
 
-      if (!opponentId)
-        return socket.emit("errorMessage", "Opponent required");
+      if (!opponentId) return socket.emit("errorMessage", "Opponent required");
 
       const battle = await Battle.create({
         hostA: socket.userId,
         hostB: opponentId,
         duration,
-        status: "pending"
+        status: "pending",
       });
 
       socket.join(battle._id.toString());
@@ -234,7 +261,7 @@ module.exports = function (io, socket) {
       battleData.hostA = {
         _id: user._id,
         name: user.name,
-        avatar: user.avatar
+        avatar: user.avatar,
       };
 
       io.to(opponentId.toString()).emit("battleRequest", battleData);
@@ -243,7 +270,7 @@ module.exports = function (io, socket) {
         socket.userId,
         "Battle Started 🔥",
         `${user.name} just started a battle! ${battle._id}`,
-        io
+        io,
       );
     } catch (err) {
       console.error("createBattle error:", err);
@@ -251,18 +278,19 @@ module.exports = function (io, socket) {
     }
   });
 
-
   socket.on("startBattle", async ({ battleId }) => {
     try {
       const battle = await Battle.findById(battleId)
         .populate("hostA", "name avatar")
         .populate("hostB", "name avatar");
 
-      if (!battle)
-        return socket.emit("errorMessage", "Battle not found");
+      if (!battle) return socket.emit("errorMessage", "Battle not found");
 
-      if (![battle.hostA._id.toString(), battle.hostB._id.toString()]
-        .includes(socket.userId.toString()))
+      if (
+        ![battle.hostA._id.toString(), battle.hostB._id.toString()].includes(
+          socket.userId.toString(),
+        )
+      )
         return socket.emit("errorMessage", "Not authorized");
 
       if (battle.status !== "pending")
@@ -275,7 +303,7 @@ module.exports = function (io, socket) {
 
       activeBattles.set(battleId, {
         hostA: battle.hostA._id.toString(),
-        hostB: battle.hostB._id.toString()
+        hostB: battle.hostB._id.toString(),
       });
 
       io.to(battleId).emit("battleStarted", battle);
@@ -283,27 +311,57 @@ module.exports = function (io, socket) {
       await LiveHistoryRecord.create({
         battleId: battle._id,
         hostA: battle.hostA,
-        hostB: battle.hostB
+        hostB: battle.hostB,
       });
 
       const roomID = battleId.toString();
 
       const [hostAToken, hostBToken] = await Promise.all([
-        generateZegoToken({ userID: battle.hostA._id.toString(), roomID, publish: true, login: true }),
-        generateZegoToken({ userID: battle.hostB._id.toString(), roomID, publish: true, login: true })
+        generateZegoToken({
+          userID: battle.hostA._id.toString(),
+          roomID,
+          publish: true,
+          login: true,
+        }),
+        generateZegoToken({
+          userID: battle.hostB._id.toString(),
+          roomID,
+          publish: true,
+          login: true,
+        }),
       ]);
 
-            io.to(battle.hostA._id.toString()).emit("zegoToken", { roomID, ...hostAToken, hostA: battle.hostA._id, hostB: battle.hostB._id });
-            io.to(battle.hostB._id.toString()).emit("zegoToken", { roomID, ...hostBToken, hostA: battle.hostA._id, hostB: battle.hostB._id });
+      io.to(battle.hostA._id.toString()).emit("zegoToken", {
+        roomID,
+        ...hostAToken,
+        hostA: battle.hostA._id,
+        hostB: battle.hostB._id,
+      });
+      io.to(battle.hostB._id.toString()).emit("zegoToken", {
+        roomID,
+        ...hostBToken,
+        hostA: battle.hostA._id,
+        hostB: battle.hostB._id,
+      });
 
       await Promise.all([
-        notifyFollowers(battle.hostA, "Battle Live 🚀", `${battle.hostA.name} is live! ${battle._id}`, io),
-        notifyFollowers(battle.hostB, "Battle Live 🚀", `${battle.hostB.name} is live! ${battle._id}`, io)
+        notifyFollowers(
+          battle.hostA,
+          "Battle Live 🚀",
+          `${battle.hostA.name} is live! ${battle._id}`,
+          io,
+        ),
+        notifyFollowers(
+          battle.hostB,
+          "Battle Live 🚀",
+          `${battle.hostB.name} is live! ${battle._id}`,
+          io,
+        ),
       ]);
 
-      setTimeout(() =>
-        forceEndBattle(battleId, io, "time_up"),
-        battle.duration * 1000
+      setTimeout(
+        () => forceEndBattle(battleId, io, "time_up"),
+        battle.duration * 1000,
       );
 
       const intervalId = setInterval(async () => {
@@ -315,15 +373,17 @@ module.exports = function (io, socket) {
             return;
           }
 
-          const timeOffset = Math.floor((Date.now() - currentBattle.startTime) / 1000);
+          const timeOffset = Math.floor(
+            (Date.now() - currentBattle.startTime) / 1000,
+          );
           const snapshot = {
             time: timeOffset,
             hostAScore: currentBattle.hostAScore,
-            hostBScore: currentBattle.hostBScore
+            hostBScore: currentBattle.hostBScore,
           };
 
           await Battle.findByIdAndUpdate(battleId, {
-            $push: { scoreHistory: snapshot }
+            $push: { scoreHistory: snapshot },
           });
 
           io.to(battleId).emit("scoreHistoryUpdate", snapshot);
@@ -335,61 +395,76 @@ module.exports = function (io, socket) {
       battleIntervals.set(battleId, intervalId);
     } catch (err) {
       console.error("startBattle error:", err);
-      socket.emit("errorMessage", "Internal server error while starting battle");
+      socket.emit(
+        "errorMessage",
+        "Internal server error while starting battle",
+      );
     }
   });
-
 
   socket.on("joinBattle", async ({ battleId }) => {
     //Kick out check
     if (kickedUsers.get(battleId)?.includes(socket.userId.toString())) {
-    return socket.emit("errorMessage", "You were removed by host");
-  }
+      return socket.emit("errorMessage", "You were removed by host");
+    }
     try {
       if (socket.rooms.has(battleId.toString())) return;
 
       socket.join(battleId);
       const user = await User.findById(socket.userId);
-      //Notify host 
+      //Notify host
       io.to(battleId).emit("viewerJoined", {
-    viewerId: socket.userId,
-    name: user.name,
-    avatar: user.avatar
-  }); //end
+        viewerId: socket.userId,
+        name: user.name,
+        avatar: user.avatar,
+      }); //end
       if (user.isBlocked) {
-        return socket.emit("errorMessage", "You are blocked from joining this battle by the admin.");
+        return socket.emit(
+          "errorMessage",
+          "You are blocked from joining this battle by the admin.",
+        );
       }
 
       const timeoutKey = `${battleId}_${socket.userId}`;
       if (reconnectTimeouts.has(timeoutKey)) {
         clearTimeout(reconnectTimeouts.get(timeoutKey));
         reconnectTimeouts.delete(timeoutKey);
-        io.to(battleId).emit("hostStatusUpdate", { hostId: socket.userId, status: "connected" });
+        io.to(battleId).emit("hostStatusUpdate", {
+          hostId: socket.userId,
+          status: "connected",
+        });
       }
 
       const isAlreadyJoined = await LiveHistoryRecord.findOne({
         battleId,
-        "participatedUsers.userId": socket.userId
+        "participatedUsers.userId": socket.userId,
       });
 
       let battle;
-          if (!isAlreadyJoined) {
+      if (!isAlreadyJoined) {
         battle = await Battle.findOneAndUpdate(
           { _id: battleId, status: "live" },
           { $inc: { viewCount: 1 } },
-          { new: true }
-        ).populate("hostA", "name avatar").populate("hostB", "name avatar");
+          { new: true },
+        )
+          .populate("hostA", "name avatar")
+          .populate("hostB", "name avatar");
 
         await LiveHistoryRecord.findOneAndUpdate(
           { battleId },
           {
-            $addToSet: { participatedUsers: { userId: socket.userId, joinedAt: new Date() } }
-          }
+            $addToSet: {
+              participatedUsers: {
+                userId: socket.userId,
+                joinedAt: new Date(),
+              },
+            },
+          },
         );
       } else {
         battle = await Battle.findOne({ _id: battleId, status: "live" })
-                    .populate("hostA", "name avatar")
-                    .populate("hostB", "name avatar");
+          .populate("hostA", "name avatar")
+          .populate("hostB", "name avatar");
       }
       if (!battle)
         return socket.emit("errorMessage", "Live session not found or ended");
@@ -401,11 +476,15 @@ module.exports = function (io, socket) {
         userID: socket.userId.toString(),
         roomID: battleId,
         publish: false,
-        login: true
+        login: true,
       });
       //upd
-      socket.emit("zegoToken", { roomID: battleId, ...viewerToken , hostA: battle.hostA._id,
-                hostB: battle.hostB ? battle.hostB._id : null});
+      socket.emit("zegoToken", {
+        roomID: battleId,
+        ...viewerToken,
+        hostA: battle.hostA._id,
+        hostB: battle.hostB ? battle.hostB._id : null,
+      });
       socket.emit("battleHistory", battle.scoreHistory);
     } catch (err) {
       console.error("joinBattle error:", err);
@@ -413,34 +492,32 @@ module.exports = function (io, socket) {
     }
   });
 
-
   socket.on("battleComment", async ({ battleId, message }) => {
     try {
       if (!message) return;
 
       const [battle, user] = await Promise.all([
         Battle.findOne({ _id: battleId, status: "live" }),
-        User.findById(socket.userId).select("name avatar")
+        User.findById(socket.userId).select("name avatar"),
       ]);
 
       if (!battle || !user) return;
 
       await Promise.all([
         BattleComment.create({ battleId, userId: socket.userId, message }),
-        Battle.findByIdAndUpdate(battleId, { $inc: { commentCount: 1 } })
+        Battle.findByIdAndUpdate(battleId, { $inc: { commentCount: 1 } }),
       ]);
 
       io.to(battleId).emit("commentUpdate", {
         message,
         userId: socket.userId,
         userName: user.name,
-        userAvatar: user.avatar
+        userAvatar: user.avatar,
       });
     } catch (err) {
       console.error("battleComment error:", err);
     }
   });
-
 
   socket.on("battleGift", async ({ battleId, giftId, hostId }) => {
     try {
@@ -448,7 +525,7 @@ module.exports = function (io, socket) {
 
       const [gift, battle] = await Promise.all([
         Gift.findById(giftId),
-        Battle.findOne({ _id: battleId, status: "live" })
+        Battle.findOne({ _id: battleId, status: "live" }),
       ]);
 
       if (!gift || !battle) return;
@@ -461,7 +538,7 @@ module.exports = function (io, socket) {
       const updatedSender = await User.findOneAndUpdate(
         { _id: senderId, goldCoin: { $gte: gift.cost } },
         { $inc: { goldCoin: -gift.cost } },
-        { new: true }
+        { new: true },
       );
 
       if (!updatedSender)
@@ -470,20 +547,36 @@ module.exports = function (io, socket) {
       const scoreField = isHostA ? "hostAScore" : "hostBScore";
 
       await Promise.all([
-        User.findByIdAndUpdate(hostId,{$inc: {diamondWallet: gift.cost,giftReceivedCount: 1,giftReceivedValue: gift.cost}}),
-        Battle.findByIdAndUpdate(battleId, { $inc: { [scoreField]: gift.cost } }),
+        User.findByIdAndUpdate(hostId, {
+          $inc: {
+            diamondWallet: gift.cost,
+            giftReceivedCount: 1,
+            giftReceivedValue: gift.cost,
+          },
+        }),
+        Battle.findByIdAndUpdate(battleId, {
+          $inc: { [scoreField]: gift.cost },
+          $push: {
+            gifts: {
+              sender: senderId,
+              host: hostId,
+              giftId: gift._id,
+              amount: gift.cost,
+            },
+          },
+        }),
         HostLeaderboard.findOneAndUpdate(
-            {
-    hostId,
-    date: today
-  },
+          {
+            hostId,
+            date: today,
+          },
           {
             $inc: {
               receivedCoinValue: gift.cost,
-              receivedCoinCount: 1
-            }
+              receivedCoinCount: 1,
+            },
           },
-          { upsert: true, new: true }
+          { upsert: true, new: true },
         ),
 
         Wallet.create({
@@ -493,7 +586,7 @@ module.exports = function (io, socket) {
           status: "success",
           source: "battle_gift_sent",
           goldCoins: gift.cost,
-          message: `Sent battle gift: ${gift.name}`
+          message: `Sent battle gift: ${gift.name}`,
         }),
 
         Wallet.create({
@@ -503,7 +596,7 @@ module.exports = function (io, socket) {
           status: "success",
           source: "battle_gift_received",
           diamond: gift.cost,
-          message: `Received battle gift: ${gift.name}`
+          message: `Received battle gift: ${gift.name}`,
         }),
 
         Purchase.create({
@@ -513,25 +606,24 @@ module.exports = function (io, socket) {
           purchaseType: "BATTLE_GIFT",
           itemId: gift._id,
           itemModel: "Gift",
-          remark: "Battle gift sent"
+          remark: "Battle gift sent",
         }),
 
         LiveHistoryRecord.findOneAndUpdate(
           { battleId },
-          { $inc: { [isHostA ? "hostAGifts" : "hostBGifts"]: gift.cost } }
-        )
+          { $inc: { [isHostA ? "hostAGifts" : "hostBGifts"]: gift.cost } },
+        ),
       ]);
 
       io.to(battleId).emit("scoreUpdate", {
         scoreField,
-        amount: gift.cost
+        amount: gift.cost,
       });
     } catch (err) {
       console.error("battleGift error:", err);
       socket.emit("errorMessage", "Internal server error while sending gift");
     }
   });
-
 
   socket.on("voteHost", async ({ battleId, hostId }) => {
     try {
@@ -542,38 +634,38 @@ module.exports = function (io, socket) {
         await Vote.create({
           battleId,
           voterId: socket.userId,
-          votedFor: hostId
+          votedFor: hostId,
         });
       } catch (err) {
         if (err.code === 11000) {
-          return socket.emit("errorMessage", "You have already voted in this battle");
+          return socket.emit(
+            "errorMessage",
+            "You have already voted in this battle",
+          );
         }
         console.error("Vote error:", err);
         return;
       }
 
       const voteField =
-        hostId === battle.hostA.toString()
-          ? "hostAVotes"
-          : "hostBVotes";
+        hostId === battle.hostA.toString() ? "hostAVotes" : "hostBVotes";
 
       if (voteField === "hostBVotes" && !battle.hostB) return;
 
       const updated = await Battle.findByIdAndUpdate(
         battleId,
         { $inc: { [voteField]: 1 } },
-        { new: true }
+        { new: true },
       );
 
       io.to(battleId).emit("voteUpdate", {
         hostAVotes: updated.hostAVotes,
-        hostBVotes: updated.hostBVotes
+        hostBVotes: updated.hostBVotes,
       });
     } catch (err) {
       console.error("voteHost error:", err);
     }
   });
-
 
   // socket.on("endBattle", async ({ battleId, duration }) => {
   //   try {
@@ -592,7 +684,6 @@ module.exports = function (io, socket) {
   //   }
   // });
 
-
   // socket.on("disconnect", async () => {
   //   try {
   //     // Remove from online hosts map
@@ -607,7 +698,7 @@ module.exports = function (io, socket) {
   //         const timeoutKey = `${battleId}_${socket.userId}`;
 
   //         io.to(battleId).emit("hostStatusUpdate", { hostId: socket.userId, status: "disconnected" });
-          
+
   //         const timeoutId = setTimeout(async () => {
   //           try {
   //             await forceEndBattle(battleId, io, "host_left");
@@ -627,125 +718,121 @@ module.exports = function (io, socket) {
   // });
 
   socket.on("endBattle", async ({ battleId }) => {
-  try {
-    const battle = await Battle.findById(battleId);
-    if (!battle) return socket.emit("errorMessage", "Battle not found");
+    try {
+      const battle = await Battle.findById(battleId);
+      if (!battle) return socket.emit("errorMessage", "Battle not found");
 
-    if (![battle.hostA.toString(), battle.hostB?.toString()]
-        .includes(socket.userId.toString())) {
-      return socket.emit("errorMessage", "Not authorized to end this battle");
+      if (
+        ![battle.hostA.toString(), battle.hostB?.toString()].includes(
+          socket.userId.toString(),
+        )
+      ) {
+        return socket.emit("errorMessage", "Not authorized to end this battle");
+      }
+
+      await forceEndBattle(battleId, io, "manual_end");
+    } catch (err) {
+      console.error("endBattle error:", err);
+      socket.emit("errorMessage", "Failed to end battle");
     }
-
-    await forceEndBattle(battleId, io, "manual_end");
-
-  } catch (err) {
-    console.error("endBattle error:", err);
-    socket.emit("errorMessage", "Failed to end battle");
-  }
-});
+  });
 
   socket.on("disconnect", async () => {
-  try {
-    onlineHosts.delete(socket.userId.toString());
-    activeRandomInvites.delete(socket.userId.toString());
+    try {
+      onlineHosts.delete(socket.userId.toString());
+      activeRandomInvites.delete(socket.userId.toString());
 
-    for (const [battleId, hosts] of activeBattles.entries()) {
+      for (const [battleId, hosts] of activeBattles.entries()) {
+        const isHostA = hosts.hostA === socket.userId.toString();
+        const isHostB = hosts.hostB && hosts.hostB === socket.userId.toString();
 
-      const isHostA = hosts.hostA === socket.userId.toString();
-      const isHostB =
-        hosts.hostB && hosts.hostB === socket.userId.toString();
+        if (!isHostA && !isHostB) continue;
 
-      if (!isHostA && !isHostB) continue;
-
-      // Notify viewers
-      io.to(battleId).emit("hostStatusUpdate", {
-        hostId: socket.userId,
-        status: "disconnected"
-      });
-
-      // SOLO LIVE → END IMMEDIATELY
-      if (hosts.isSolo) {
-        await forceEndBattle(battleId, io, "host_left");
-        continue;
-      }
-
-      //BATTLE → WAIT 30s FOR RECONNECT
-      const timeoutKey = `${battleId}_${socket.userId}`;
-
-      const timeoutId = setTimeout(async () => {
-        try {
-          await forceEndBattle(battleId, io, "host_left");
-        } catch (err) {
-          console.error("Auto end error:", err);
-        }
-        reconnectTimeouts.delete(timeoutKey);
-      }, 30000);
-
-      reconnectTimeouts.set(timeoutKey, timeoutId);
-    }
-
-    console.log("Disconnected:", socket.userId);
-
-  } catch (err) {
-    console.error("disconnect error:", err);
-  }
-});
-//KickOut
-socket.on("kickViewer", async ({ battleId, viewerId }) => {
-  try {
-    const battle = await Battle.findById(battleId);
-
-    if (!battle || battle.status !== "live") {
-      return socket.emit("errorMessage", "Live not active");
-    }
-
-    const isHost =
-      battle.hostA.toString() === socket.userId.toString() ||
-      (battle.hostB && battle.hostB.toString() === socket.userId.toString());
-
-    if (!isHost) {
-      return socket.emit("errorMessage", "Only host can remove viewers");
-    }
-
-    if (
-      viewerId === battle.hostA.toString() ||
-      viewerId === battle.hostB?.toString()
-    ) {
-      return socket.emit("errorMessage", "Cannot remove a host");
-    }
-
-    // STORE kicked viewer
-    if (!kickedUsers.has(battleId)) {
-      kickedUsers.set(battleId, []);
-    }
-
-    const viewers = kickedUsers.get(battleId);
-    if (!viewers.includes(viewerId)) {
-      viewers.push(viewerId);
-    }
-
-    const sockets = await io.in(battleId).fetchSockets();
-
-    sockets.forEach((s) => {
-      if (s.userId.toString() === viewerId.toString()) {
-
-        s.leave(battleId);
-
-        s.emit("kickedFromLive", {
-          battleId,
-          message: "You were removed by host"
+        // Notify viewers
+        io.to(battleId).emit("hostStatusUpdate", {
+          hostId: socket.userId,
+          status: "disconnected",
         });
 
-        io.to(battleId).emit("viewerRemoved", { viewerId });
+        // SOLO LIVE → END IMMEDIATELY
+        if (hosts.isSolo) {
+          await forceEndBattle(battleId, io, "host_left");
+          continue;
+        }
+
+        //BATTLE → WAIT 30s FOR RECONNECT
+        const timeoutKey = `${battleId}_${socket.userId}`;
+
+        const timeoutId = setTimeout(async () => {
+          try {
+            await forceEndBattle(battleId, io, "host_left");
+          } catch (err) {
+            console.error("Auto end error:", err);
+          }
+          reconnectTimeouts.delete(timeoutKey);
+        }, 30000);
+
+        reconnectTimeouts.set(timeoutKey, timeoutId);
       }
-    });
 
-  } catch (err) {
-    console.error("kickViewer error:", err);
-  }
-});
+      console.log("Disconnected:", socket.userId);
+    } catch (err) {
+      console.error("disconnect error:", err);
+    }
+  });
+  //KickOut
+  socket.on("kickViewer", async ({ battleId, viewerId }) => {
+    try {
+      const battle = await Battle.findById(battleId);
+
+      if (!battle || battle.status !== "live") {
+        return socket.emit("errorMessage", "Live not active");
+      }
+
+      const isHost =
+        battle.hostA.toString() === socket.userId.toString() ||
+        (battle.hostB && battle.hostB.toString() === socket.userId.toString());
+
+      if (!isHost) {
+        return socket.emit("errorMessage", "Only host can remove viewers");
+      }
+
+      if (
+        viewerId === battle.hostA.toString() ||
+        viewerId === battle.hostB?.toString()
+      ) {
+        return socket.emit("errorMessage", "Cannot remove a host");
+      }
+
+      // STORE kicked viewer
+      if (!kickedUsers.has(battleId)) {
+        kickedUsers.set(battleId, []);
+      }
+
+      const viewers = kickedUsers.get(battleId);
+      if (!viewers.includes(viewerId)) {
+        viewers.push(viewerId);
+      }
+
+      const sockets = await io.in(battleId).fetchSockets();
+
+      sockets.forEach((s) => {
+        if (s.userId.toString() === viewerId.toString()) {
+          s.leave(battleId);
+
+          s.emit("kickedFromLive", {
+            battleId,
+            message: "You were removed by host",
+          });
+
+          io.to(battleId).emit("viewerRemoved", { viewerId });
+        }
+      });
+    } catch (err) {
+      console.error("kickViewer error:", err);
+    }
+  });
 };
-
 
 // async function forceEndBattle(battleId, io, reason, manualDuration) {
 
@@ -819,8 +906,7 @@ async function forceEndBattle(battleId, io, reason = "time_up") {
     if (battle.hostAScore > battle.hostBScore) {
       winner = battle.hostA;
       result = "hostA";
-    } 
-    else if (battle.hostBScore > battle.hostAScore) {
+    } else if (battle.hostBScore > battle.hostAScore) {
       winner = battle.hostB;
       result = "hostB";
     }
@@ -840,7 +926,7 @@ async function forceEndBattle(battleId, io, reason = "time_up") {
       hostBScore: battle.hostBScore,
       hostAVotes: battle.hostAVotes,
       hostBVotes: battle.hostBVotes,
-      liveDuration
+      liveDuration,
     });
 
     const sockets = await io.in(battleId).fetchSockets();
@@ -867,7 +953,6 @@ async function forceEndBattle(battleId, io, reason = "time_up") {
     }
 
     console.log(`Battle ${battleId} ended successfully`);
-
   } catch (err) {
     console.error("forceEndBattle error:", err);
   }

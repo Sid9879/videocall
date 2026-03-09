@@ -14,7 +14,7 @@ const BattleSchema = new mongoose.Schema({
     default: false
   },
   liveDuration: { type: Number, default: 0 }, // Duration in seconds
-  duration: { type: Number },
+  duration: { type: Number, default: 120 },
 
   startTime: Date,
   endTime: Date,
@@ -35,6 +35,16 @@ const BattleSchema = new mongoose.Schema({
       hostBScore: { type: Number, default: 0 }
     }
   ], 
+
+   gifts: [
+    {
+      sender: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      host: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      giftId: { type: mongoose.Schema.Types.ObjectId, ref: "Gift" },
+      amount: Number,
+      sentAt: { type: Date, default: Date.now }
+    }
+  ],
 
   winner: { type: mongoose.Schema.Types.ObjectId, ref: "User" }
 }, { timestamps: true });

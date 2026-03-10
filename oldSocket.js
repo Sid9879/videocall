@@ -12,13 +12,13 @@ const Follow = require("../models/Follow");
 const NotificationRecipient = require("../models/NotificationRecipient");
 const LiveHistoryRecord = require("../models/LiveHistoryRecord");
 const HostLeaderboard = require("../models/HostLeaderboard");
-const activeBattles = require("./battleStore");
+
 const generateZegoToken = require("../utility/generateZegoToken");
 
 const today = new Date();
 today.setHours(0, 0, 0, 0);
 
-// const activeBattles = new Map();
+const activeBattles = new Map();
 const battleIntervals = new Map();
 const reconnectTimeouts = new Map();
 
@@ -301,12 +301,10 @@ module.exports = function (io, socket) {
       battle.endTime = new Date(Date.now() + battle.duration * 1000);
       await battle.save();
 
-
       activeBattles.set(battleId, {
-  hostA: battle.hostA._id.toString(),
-  hostB: battle.hostB._id.toString(),
-  startTime: battle.startTime
-});
+        hostA: battle.hostA._id.toString(),
+        hostB: battle.hostB._id.toString(),
+      });
 
       io.to(battleId).emit("battleStarted", battle);
 
@@ -366,6 +364,35 @@ module.exports = function (io, socket) {
         battle.duration * 1000,
       );
 
+      const intervalId = setInterval(async () => {
+        try {
+          const currentBattle = await Battle.findById(battleId);
+          if (!currentBattle || currentBattle.status !== "live") {
+            clearInterval(battleIntervals.get(battleId));
+            battleIntervals.delete(battleId);
+            return;
+          }
+
+          const timeOffset = Math.floor(
+            (Date.now() - currentBattle.startTime) / 1000,
+          );
+          const snapshot = {
+            time: timeOffset,
+            hostAScore: currentBattle.hostAScore,
+            hostBScore: currentBattle.hostBScore,
+          };
+
+          await Battle.findByIdAndUpdate(battleId, {
+            $push: { scoreHistory: snapshot },
+          });
+
+          io.to(battleId).emit("scoreHistoryUpdate", snapshot);
+        } catch (err) {
+          console.error("Snapshot error:", err);
+        }
+      }, 10000);
+
+      battleIntervals.set(battleId, intervalId);
     } catch (err) {
       console.error("startBattle error:", err);
       socket.emit(
@@ -640,6 +667,56 @@ module.exports = function (io, socket) {
     }
   });
 
+  // socket.on("endBattle", async ({ battleId, duration }) => {
+  //   try {
+  //     const battle = await Battle.findById(battleId);
+  //     if (!battle) return socket.emit("errorMessage", "Battle not found");
+
+  //     // Only hosts can end the battle manually
+  //     if (![battle.hostA.toString(), battle.hostB?.toString()].includes(socket.userId.toString())) {
+  //       return socket.emit("errorMessage", "Not authorized to end this battle");
+  //     }
+
+  //     await forceEndBattle(battleId, io, "manual_end", duration);
+  //   } catch (err) {
+  //     console.error("endBattle error:", err);
+  //     socket.emit("errorMessage", "Failed to end battle");
+  //   }
+  // });
+
+  // socket.on("disconnect", async () => {
+  //   try {
+  //     // Remove from online hosts map
+  //     onlineHosts.delete(socket.userId.toString());
+  //     activeRandomInvites.delete(socket.userId.toString());
+
+  //     for (const [battleId, hosts] of activeBattles.entries()) {
+  //       const isHostA = hosts.hostA === socket.userId.toString();
+  //       const isHostB = hosts.hostB && hosts.hostB === socket.userId.toString();
+
+  //       if (isHostA || isHostB) {
+  //         const timeoutKey = `${battleId}_${socket.userId}`;
+
+  //         io.to(battleId).emit("hostStatusUpdate", { hostId: socket.userId, status: "disconnected" });
+
+  //         const timeoutId = setTimeout(async () => {
+  //           try {
+  //             await forceEndBattle(battleId, io, "host_left");
+  //           } catch (endErr) {
+  //             console.error("Error ending battle after timeout:", endErr);
+  //           }
+  //           reconnectTimeouts.delete(timeoutKey);
+  //         }, 30000);
+
+  //         reconnectTimeouts.set(timeoutKey, timeoutId);
+  //       }
+  //     }
+  //     console.log("Disconnected:", socket.userId);
+  //   } catch (err) {
+  //     console.error("disconnect error:", err);
+  //   }
+  // });
+
   socket.on("endBattle", async ({ battleId }) => {
     try {
       const battle = await Battle.findById(battleId);
@@ -756,6 +833,58 @@ module.exports = function (io, socket) {
     }
   });
 };
+
+// async function forceEndBattle(battleId, io, reason, manualDuration) {
+
+//   const battle = await Battle.findById(battleId);
+//   if (!battle || battle.status === "ended") return;
+
+//   battle.status = "ended";
+//   battle.endTime = new Date();
+
+//   if (manualDuration !== undefined) {
+//     battle.liveDuration = manualDuration;
+//   } else if (battle.startTime) {
+//     const durationInSeconds = Math.floor((battle.endTime - battle.startTime) / 1000);
+//     battle.liveDuration = durationInSeconds;
+//   }
+
+//   let winner = null;
+//   if (battle.hostAScore > battle.hostBScore)
+//     winner = battle.hostA;
+//   else if (battle.hostBScore > battle.hostAScore)
+//     winner = battle.hostB;
+
+//   battle.winner = winner;
+//   await battle.save();
+
+//   io.to(battleId).emit("battleEnded", {
+//     reason,
+//     hostAScore: battle.hostAScore,
+//     hostBScore: battle.hostBScore,
+//     hostAVotes: battle.hostAVotes,
+//     hostBVotes: battle.hostBVotes,
+//     winner
+//   });
+
+//   const sockets = await io.in(battleId).fetchSockets();
+//   sockets.forEach(s => s.leave(battleId));
+
+//   activeBattles.delete(battleId);
+
+//   const intervalId = battleIntervals.get(battleId);
+//   if (intervalId) {
+//     clearInterval(intervalId);
+//     battleIntervals.delete(battleId);
+//   }
+
+//   for (const [key, timeoutId] of reconnectTimeouts.entries()) {
+//     if (key.startsWith(`${battleId}_`)) {
+//       clearTimeout(timeoutId);
+//       reconnectTimeouts.delete(key);
+//     }
+//   }
+// }
 
 async function forceEndBattle(battleId, io, reason = "time_up") {
   try {

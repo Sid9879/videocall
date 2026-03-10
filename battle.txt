@@ -1,0 +1,573 @@
+LIVE BATTLE SYSTEM
+COMPLETE FRONTEND INTEGRATION DOCUMENTATION
+
+
+================================================
+1. SYSTEM OVERVIEW
+================================================
+
+This system allows:
+
+Hosts:
+- Go Live (solo live)
+- Start battles
+- Invite random hosts
+- Invite specific hosts
+- Receive gifts
+- Get votes
+- Kick viewers
+
+Viewers:
+- Join live stream
+- Watch host battle
+- Send comments
+- Send gifts
+- Vote for hosts
+
+
+Battle Types:
+
+1) SOLO LIVE
+   Host streaming alone
+
+2) HOST BATTLE
+   Two hosts competing
+
+3) RANDOM BATTLE
+   Random host matched
+
+
+Core Technologies:
+
+Socket.IO -> Real time events
+Zego -> Video streaming
+MongoDB -> Battle data storage
+
+
+================================================
+2. SOCKET CONNECTION FLOW
+================================================
+
+STEP 1
+
+Frontend connects socket
+
+socket.connect()
+
+Server automatically:
+- joins user private room
+- tracks verified hosts online
+
+
+================================================
+3. RANDOM BATTLE FLOW
+================================================
+
+STEP 1
+Host sends random invite
+
+socket.emit("inviteRandomHost", {
+    duration: 300
+})
+
+duration = battle time in seconds
+
+
+STEP 2
+Other hosts receive invite
+
+socket.on("randomBattleRequest", data)
+
+
+Payload:
+
+{
+    hostA:{
+        _id,
+        name,
+        avatar
+    },
+    duration,
+    type:"random_invite"
+}
+
+
+STEP 3
+Host accepts invite
+
+socket.emit("acceptRandomInvite", {
+    hostAId,
+    duration
+})
+
+
+STEP 4
+Battle created
+
+socket.on("randomInviteAccepted", battleData)
+
+Server then emits:
+
+battleReady
+
+
+================================================
+4. SOLO LIVE FLOW
+================================================
+
+STEP 1
+Host goes live
+
+socket.emit("goLive")
+
+
+STEP 2
+Server creates live room
+
+socket.on("liveStarted", data)
+
+
+Payload
+
+{
+    battleId,
+    roomID,
+    hostName,
+    hostAvatar,
+    token,
+    appID
+}
+
+
+Frontend must:
+
+1) Join Zego room
+2) Start streaming video
+
+
+================================================
+5. DIRECT BATTLE INVITE
+================================================
+
+STEP 1
+Host invites another host
+
+socket.emit("createBattle",{
+    opponentId,
+    duration
+})
+
+
+STEP 2
+Opponent receives invite
+
+socket.on("battleRequest", battleData)
+
+
+Frontend should show popup
+
+"Host invited you for a battle"
+
+
+STEP 3
+Battle start
+
+socket.emit("startBattle",{
+    battleId
+})
+
+
+================================================
+6. BATTLE START
+================================================
+
+Server emits
+
+socket.on("battleStarted", battleData)
+
+
+Server sends streaming token
+
+socket.on("zegoToken", tokenData)
+
+
+Payload
+
+{
+    roomID,
+    token,
+    hostA,
+    hostB
+}
+
+
+Frontend must:
+
+Join Zego room
+
+Start video publishing
+
+
+================================================
+7. VIEWER JOIN FLOW
+================================================
+
+Viewer joins battle
+
+socket.emit("joinBattle",{
+    battleId
+})
+
+
+Server responses:
+
+1) viewerJoined
+2) viewUpdate
+3) zegoToken
+4) battleStarted
+5) battleHistory
+
+
+viewerJoined payload
+
+{
+    viewerId,
+    name,
+    avatar
+}
+
+
+viewUpdate payload
+
+viewerCount
+
+
+Frontend must:
+
+Join video room
+Watch stream
+
+
+================================================
+8. COMMENT SYSTEM
+================================================
+
+Viewer sends comment
+
+socket.emit("battleComment",{
+    battleId,
+    message
+})
+
+
+Server broadcasts
+
+socket.on("commentUpdate", data)
+
+
+Payload
+
+{
+    message,
+    userId,
+    userName,
+    userAvatar
+}
+
+
+================================================
+9. GIFT SYSTEM
+================================================
+
+Viewer sends gift
+
+socket.emit("battleGift",{
+    battleId,
+    giftId,
+    hostId
+})
+
+
+Server updates scores
+
+
+Server emits
+
+socket.on("scoreUpdate", data)
+
+
+Payload
+
+{
+    scoreField,
+    amount
+}
+
+
+scoreField values
+
+hostAScore
+hostBScore
+
+
+Frontend updates scoreboard.
+
+
+================================================
+10. VOTE SYSTEM
+================================================
+
+Viewer votes
+
+socket.emit("voteHost",{
+    battleId,
+    hostId
+})
+
+
+Server broadcasts
+
+socket.on("voteUpdate", data)
+
+
+Payload
+
+{
+    hostAVotes,
+    hostBVotes
+}
+
+
+================================================
+11. KICK VIEWER
+================================================
+
+Host removes viewer
+
+socket.emit("kickViewer",{
+    battleId,
+    viewerId
+})
+
+
+Viewer receives
+
+socket.on("kickedFromLive", data)
+
+
+Payload
+
+{
+    battleId,
+    message
+}
+
+
+Room receives
+
+socket.on("viewerRemoved",{
+    viewerId
+})
+
+
+================================================
+12. HOST DISCONNECT FLOW
+================================================
+
+Server emits
+
+socket.on("hostStatusUpdate", data)
+
+
+Payload
+
+{
+    hostId,
+    status
+}
+
+
+status values
+
+connected
+disconnected
+
+
+If host does not reconnect in 30 seconds:
+
+battle automatically ends.
+
+
+================================================
+13. BATTLE END
+================================================
+
+Host ends battle
+
+socket.emit("endBattle",{
+    battleId
+})
+
+
+Server broadcasts
+
+socket.on("battleEnded", data)
+
+
+Payload
+
+{
+    reason,
+    result,
+    winner,
+    hostAScore,
+    hostBScore,
+    hostAVotes,
+    hostBVotes,
+    liveDuration
+}
+
+
+================================================
+14. FRONTEND EVENT LIST
+================================================
+
+Frontend MUST listen to these events
+
+
+randomBattleRequest
+randomInviteAccepted
+battleReady
+battleRequest
+battleStarted
+liveStarted
+zegoToken
+viewerJoined
+viewerRemoved
+viewUpdate
+commentUpdate
+scoreUpdate
+voteUpdate
+battleHistory
+hostStatusUpdate
+battleEnded
+kickedFromLive
+
+
+================================================
+15. HOST FLOW
+================================================
+
+connect socket
+
+↓
+
+goLive OR createBattle
+
+↓
+
+battle request accepted
+
+↓
+
+startBattle
+
+↓
+
+stream video
+
+↓
+
+receive gifts
+
+↓
+
+battle ends
+
+
+================================================
+16. VIEWER FLOW
+================================================
+
+connect socket
+
+↓
+
+joinBattle
+
+↓
+
+watch stream
+
+↓
+
+comment
+
+↓
+
+send gift
+
+↓
+
+vote host
+
+↓
+
+battle ends
+
+
+================================================
+17. BATTLE LIFECYCLE
+================================================
+
+PENDING
+battle created
+
+↓
+
+LIVE
+hosts streaming
+
+↓
+
+ENDED
+battle finished
+
+
+================================================
+18. STREAM ARCHITECTURE
+================================================
+
+Host Video
+     ↓
+Zego Server
+     ↓
+Viewers
+
+Socket.IO handles:
+
+- comments
+- gifts
+- votes
+- viewers
+- battle events
+
+
+================================================
+19. IMPORTANT FRONTEND RULES
+================================================
+
+1) Always join socket before joining live
+
+2) Always wait for zegoToken before streaming
+
+3) Use battleId as roomID
+
+4) Handle reconnect properly
+
+5) Handle battleEnded event globally
+
+
+================================================
+END OF DOCUMENT
+================================================

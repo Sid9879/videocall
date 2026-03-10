@@ -1,32 +1,10 @@
-// const socket = require("socket.io");
-// const socketAuth = require("./socketAuth");
-// const chatSocket = require("./ChatSocket");
-// const battleSocket = require("./BattleSocket");
-
-// const initializeSocket = (server) => {
-//   const io = socket(server, {
-//     cors: {
-//       origin: "*",
-//       methods: ["GET", "POST"],
-//     },
-//   });
-
-//   io.use(socketAuth);
-
-//   chatSocket(io);
-//   battleSocket(io);
-
-//   return io;
-// };
-
-// module.exports = initializeSocket;
-
-
 const socket = require("socket.io");
 const socketAuth = require("./socketAuth");
 const chatSocket = require("./ChatSocket");
 const battleSocket = require("./BattleSocket");
 const User = require("../models/User");
+const activeBattles = require("./battleStore"); //added
+const startBattleScheduler = require("./battleScheduler"); //added
 
 const initializeSocket = (server) => {
   const io = socket(server, {
@@ -37,7 +15,7 @@ const initializeSocket = (server) => {
   });
 
   io.use(socketAuth);
-
+  startBattleScheduler(io, activeBattles); //added
   io.on("connection", async (socket) => {
     console.log("User connected:", socket.userId);
 
